@@ -8,13 +8,17 @@ import pathlib
 import subprocess
 import sys
 
+import matplotlib.pyplot as plt
+import numpy as np
 import spack.error
+from scipy.stats import wilcoxon
 
 level = "long"
 section = "developer"
 description = "run micro-benchmarks for Spack internals"
 
-THRESHOLD = 0.10  # flag changes beyond 10%
+THRESHOLD = 0.10  # flag changes beyond 10% in markdown table
+ALPHA = 0.05  # significance level for Wilcoxon test
 
 BENCHMARKS_DIR = pathlib.Path(__file__).parent.parent / "benchmarks"
 
@@ -136,6 +140,39 @@ def _fmt_pct(ratio):
     return f"{sign}{ratio * 100:.1f}%{flag}"
 
 
+def _check_regressions(runs):
+    """Wilcoxon signed-rank test on log-ratios of medians. Return True if any regression found."""
+
+    baseline_label, baseline_data = runs[0]
+    has_regression = False
+
+    for label, data in runs[1:]:
+        common = [n for n in data if n in baseline_data]
+        log_ratios = np.log([data[n]["median"] / baseline_data[n]["median"] for n in common])
+
+        if np.all(log_ratios == 0):
+            print(f"—  {baseline_label} → {label}: identical")
+            continue
+
+        test_improvement = wilcoxon(log_ratios, alternative="less")
+        test_regression = wilcoxon(log_ratios, alternative="greater")
+
+        if test_improvement.pvalue < ALPHA:
+            result, symbol = "improvement", "✅"
+        elif test_regression.pvalue < ALPHA:
+            result, symbol = "regression", "⚠️"
+            has_regression = True
+        else:
+            result, symbol = "not significant", "—"
+
+        print(
+            f"{symbol}  {baseline_label} → {label}: {result} "
+            f"(p_improvement={test_improvement.pvalue:.4f}, p_regression={test_regression.pvalue:.4f})"
+        )
+
+    return has_regression
+
+
 def _print_markdown(runs):
     # runs: list of (label, {name: stats})
     all_names = sorted(set(name for _, data in runs for name in data))
@@ -168,8 +205,6 @@ def _shorten(name, max_len=30):
 
 
 def _plot(runs, output, log_scale=False):
-    import matplotlib.pyplot as plt
-    import numpy as np
 
     # runs: list of (label, {name: stats})
     all_names = sorted(set(name for _, data in runs for name in data))
@@ -212,10 +247,16 @@ def compare(args):
         )
     runs = [(label, _load(f)) for label, f in zip(labels, args.files)]
 
+    has_regression = _check_regressions(runs)
+
     if args.markdown:
+        print()
         _print_markdown(runs)
     else:
         _plot(runs, args.output, log_scale=args.log_scale)
+
+    if has_regression:
+        sys.exit(1)
 
 
 def microbenchmark(parser, args):
