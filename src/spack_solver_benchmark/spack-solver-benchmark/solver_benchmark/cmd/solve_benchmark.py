@@ -32,7 +32,6 @@ TIMING_COLS = [*SOLUTION_PHASES, "total"]
 COLUMNS = ["spec", "hash", "iteration", *TIMING_COLS, "deps"]
 ALPHA = 0.05
 COMPILER_VIRTUALS = {"c", "cxx", "fortran"}
-COMPILER_PACKAGES = {"gcc", "clang", "intel", "nvhpc", "xl", "aocc", "oneapi", "apple-clang", "intel-oneapi-compilers"}
 
 
 level = "long"
@@ -363,10 +362,9 @@ def _validate_matching_specs(
     before_grouped = _group_specs_by_root(before_specs)
     after_grouped = _group_specs_by_root(after_specs)
 
-    before_spec_strs = set(get_root_spec_str(k) for k in before_grouped.keys())
-    after_spec_strs = set(get_root_spec_str(k) for k in after_grouped.keys())
-
-    if before_spec_strs != after_spec_strs:
+    if before_grouped.keys() != after_grouped.keys():
+        before_spec_strs = {get_root_spec_str(k) for k in before_grouped.keys()}
+        after_spec_strs = {get_root_spec_str(k) for k in after_grouped.keys()}
         raise RuntimeError(
             f"Specs in {before_file} and {after_file} do not match: "
             f"{before_spec_strs.symmetric_difference(after_spec_strs)}"
